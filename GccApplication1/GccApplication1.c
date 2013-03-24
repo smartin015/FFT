@@ -13,6 +13,9 @@
 #include "suart.h"		/* Defs for using Software UART module (Debugging via AVRSP-COM) */
 #include "ffft.h"		/* Defs for using Fixed-point FFT module */
 
+//#define NUM_LEDS 5
+//uint16_t ledbins[NUM_LEDS];
+
 int16_t capture[FFT_N];			/* Wave captureing buffer */
 complex_t bfly_buff[FFT_N];		/* FFT buffer */
 uint16_t spektrum[FFT_N/2];		/* Spectrum output buffer */
@@ -65,7 +68,7 @@ void capture_wave (int16_t *buffer, uint16_t count)
 	ADMUX = _BV(REFS0)|_BV(ADLAR)|_BV(MUX2)|_BV(MUX0);	// channel 5
 
 	do {
-		ADCSRA = _BV(ADEN)|_BV(ADSC)|_BV(ADIF)|_BV(ADPS2)|_BV(ADPS1);
+		ADCSRA = _BV(ADEN)|_BV(ADSC)|_BV(ADIF)|_BV(ADPS2)|_BV(ADPS1)|_BV(ADPS0); //x128 prescale... 64kHz yields 
 		
 		loop_until_bit_is_set(ADCSRA, ADIF);
 		*buffer++ = ADC - 32768;
@@ -100,41 +103,74 @@ void capture_wave_inplace (complex_t *buffer, uint16_t count)
 /*------------------------------------------------*/
 /* Online Monitor via an ISP cable                */
 
+void display_spektrum() {
+	uint16_t m, n, s;
+	printf("\n\r-----------------");
+	for (n = 0; n < FFT_N / 2; n++) {
+		s = spektrum[n];
+		s /= 512;
+		printf("\n\r:%3d ", n, s);
+		for (m = 0; m < s; m++) printf("*");
+		
+	}
+}
+
 int main (void)
 {
-	char *cp;
-	uint16_t m, n, s;
-	uint16_t t1,t2,t3;
-	DDRD = 0x05;
 	stdout = &uart_output;
 	stdin  = &uart_input;
-	
-	
-	//DDRE = 0b00000010;	/* PE1:<conout>, PE0:<conin> in N81 38.4kbps */
+	DDRD = 0x05;
+	//DDRC = 0x1F;
 	uart_init();
-		
-		
-	char UART_BUF[128];
+	
+	PORTC = 0x1F;
+	_delay_ms(500);
+	
+	uint16_t max = 0;
+	uint16_t m, n, s;
 	for(;;) {
+		
 		capture_wave(capture, FFT_N);		
 		fft_input(capture, bfly_buff);
 		fft_execute(bfly_buff);
 		fft_output(bfly_buff, spektrum);
-		printf("\n\r-----------------");
 		
-		for (n = 0; n < FFT_N / 2; n++) {
-			s = spektrum[n];
+		printf("\n\r--------------------");
+		max = 0;
+		//Note: skip first few b/c low frequency sucks.
+		for (n = 4; n < FFT_N / 2; n++) {
+			if (spektrum[n] > spektrum[max])
+				max = n;
+			//printf("\n\r%d", n*NUM_LEDS / FFT_N);
+			//ledbins[(n*NUM_LEDS) / FFT_N] += spektrum[n];
+		}
+		
+		/*
+		printf("\n\r-----------------");
+		for (n = 0; n < NUM_LEDS; n++) {
+			s = ledbins[n];
 			s /= 512;
-			printf("\n\r:%3d ", n, s);
+			printf("\n\r:%3d ", n);
 			for (m = 0; m < s; m++) printf("*");
 			
 		}
 		
+		char z;
+		if (max > (FFT_N/2) - (FFT_N/10))
+			z = 4;
+		else if (max > (FFT_N/2) - 2*(FFT_N/10))
+			z = 3;
+		else if (max > (FFT_N/2) - 3*(FFT_N/10))
+			z = 2;
+		else if (max > (FFT_N/2) - 4*(FFT_N/10))
+			z = 1;
+		else z = 0;
+		
+		PORTC = (1 << z); 
+	    */	
 		//printf("\ninput=%u, execute=%u, output=%u", t1, t2, t3);
 		_delay_ms(200);
-		PORTD ^= 0x04;
-		_delay_ms(200);
-		
+		PORTD ^= 0x04;	
 	}
 	
 }
